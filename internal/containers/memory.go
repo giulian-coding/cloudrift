@@ -17,17 +17,31 @@ func NewMemoryRepository() *MemoryRepository {
 func (r *MemoryRepository) Create(ctx context.Context, c Container) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, exists := r.containers[c.ID]; !exists {
+		r.containers[c.ID] = c
+		return nil
+	}
+	return ErrAlreadyExists
+}
 
-	r.containers[c.ID] = c
-	return nil
+func (r *MemoryRepository) Delete(ctx context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.containers[id]; exists {
+		delete(r.containers, id)
+		return nil
+	}
+
+	return ErrNotFound
 }
 
 func (r *MemoryRepository) ByID(ctx context.Context, id string) (Container, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if order, exists := r.containers[id]; exists {
-		return order, nil
+	if container, exists := r.containers[id]; exists {
+		return container, nil
 	}
 
 	return Container{}, ErrNotFound

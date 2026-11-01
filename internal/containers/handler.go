@@ -16,8 +16,8 @@ func NewHandler(svc *Service) *Handler {
 
 func (h *Handler) Register(router *gin.RouterGroup) {
 	router.POST("/create", h.createContainer)
-	router.GET("/:id", h.getContainer)
-	router.GET("/:id/shell", h.getContainerShell)
+	router.GET("/id/:id", h.getContainer)
+	router.GET("/id/:id/shell", h.getContainerShell)
 }
 
 func (h *Handler) createContainer(ctx *gin.Context) {
@@ -28,9 +28,17 @@ func (h *Handler) createContainer(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	h.svc.createContainer(ctx, req.ImageURL)
+	id, err := h.svc.createContainer(ctx.Request.Context(), req.ImageURL)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	ctx.JSON(http.StatusOK, gin.H{"message": "Container wird erstellt", "image": req.ImageURL})
+	ctx.JSON(http.StatusCreated, gin.H{
+		"id":      id,
+		"image":   req.ImageURL,
+		"message": "Container erstellt",
+	})
 }
 
 func (h *Handler) getContainer(ctx *gin.Context) {

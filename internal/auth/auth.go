@@ -9,6 +9,21 @@ import (
 	"github.com/kinde-oss/kinde-go/oauth2/authorization_code"
 )
 
+/*
+
+to use it u have to pass through an Auth Provider:
+
+	privateGroup := router.Group("/private")
+	err = auth.UseKindeAuth(
+		privateGroup,
+		os.Getenv("KINDE_DOMAIN"),
+		os.Getenv("KINDE_CLIENT_ID"),
+		os.Getenv("KINDE_CLIENT_SECRET"),
+		os.Getenv("KINDE_REDIRECT_URI"),
+	)
+
+*/
+
 func UseKindeAuth(router *gin.RouterGroup, kindeDomain, clientID, clientSecret, baseRedirectURL string, options ...authorization_code.Option) error {
 	basePath := router.BasePath()
 	if basePath == "/" {

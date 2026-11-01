@@ -3,7 +3,6 @@
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/containerd/containerd"
@@ -12,41 +11,32 @@ import (
 
 type Repository interface {
 	Create(context.Context, Container) error
+	Delete(context.Context, string) error
 	ByID(context.Context, string) (Container, error)
 }
 
 type Service struct {
-	repo Repository
+	repo   Repository
+	client *containerd.Client
 }
 
-func NewService(repo Repository) *Service {
+func NewService(repo Repository, client *containerd.Client) *Service {
 	return &Service{
-		repo: repo,
+		repo:   repo,
+		client: client,
 	}
 }
 
-func (s *Service) createContainer(ctx context.Context, imageURL string) {
+func (s *Service) createContainer(ctx context.Context, imageURL string) (string, error) {
+	id := fmt.Sprintf("dev-shell-%d", time.Now().UnixNano())
+	snapshotName := id + "-snapshot"
 
-}
-
-func containers() {
-	ctx := context.Background()
-
-	uniqueID := fmt.Sprintf("dev-shell-%d", time.Now().Unix())
-	snapshotName := fmt.Sprintf("%s-snapshot", uniqueID)
-
-	client, err := containerd.New("/run/containerd/containerd.sock", containerd.WithDefaultNamespace("default"))
+	image, err := s.client.Pull(ctx, imageURL, containerd.WithPullUnpack)
 	if err != nil {
-		log.Fatalf("connection to containerd failed: %v", err)
-	}
-	defer client.Close()
-
-	image, err := client.Pull(ctx, "docker.io/library/golang:1.27.3-bookworm", containerd.WithPullUnpack)
-	if err != nil {
-		log.Fatalf("image pull failed: %v", err)
+		return "", fmt.Errorf("pull image: %w", err)
 	}
 
-	ctr, err := client.NewContainer(ctx, "golang",
+	ctr, err := s.client.NewContainer(ctx, id,
 		containerd.WithNewSnapshot(snapshotName, image),
 		containerd.WithNewSpec(
 			oci.WithImageConfig(image),
@@ -55,14 +45,36 @@ func containers() {
 		),
 	)
 	if err != nil {
-		log.Fatalf("container creation failed: %v", err)
+		return "", fmt.Errorf("create container: %w", err)
 	}
-	defer ctr.Delete(ctx, containerd.WithSnapshotCleanup)
 
-	exitCode, err := runInteractiveShell(ctx, ctr)
+	if err := s.repo.Create(ctx, Container{ID: id}); err != nil {
+		if cleanupErr := ctr.Delete(ctx, containerd.WithSnapshotCleanup); cleanupErr != nil {
+			return "", fmt.Errorf(
+				"save container in repository: %w; cleanup also failed: %v",
+				err,
+				cleanupErr,
+			)
+		}
+		return "", fmt.Errorf("save container in repository: %w", err)
+	}
+	return id, nil
+}
+
+func (s *Service) deleteContainer(ctx context.Context, id string) error {
+	if _, err := s.repo.ByID(ctx, id); err != nil {
+		return fmt.Errorf("find container in repository: %w", err)
+	}
+	ctr, err := s.client.LoadContainer(ctx, id)
 	if err != nil {
-		log.Fatalf("\nFehler in der Shell: %v\n", err)
+		return fmt.Errorf("load container: %w", err)
+	}
+	if err := ctr.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
+		return fmt.Errorf("delete container: %w", err)
+	}
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("remove container from repository: %w", err)
 	}
 
-	fmt.Printf("container stopped with exit code: %d\n", exitCode)
+	return nil
 }
